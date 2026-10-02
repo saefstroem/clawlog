@@ -1,0 +1,21 @@
+[package]
+name = "clawlog"
+version = "0.1.0"
+edition = "2021"
+description = "Trait-backed coding-agent hook logger that appends every prompt, tool call and response to per-conversation JSON array files"
+publish = false
+
+[dependencies]
+ratatui = "0.30.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[workspace]
+members = ["."]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
