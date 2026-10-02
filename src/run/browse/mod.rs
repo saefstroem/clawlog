@@ -2,7 +2,6 @@ mod action;
 mod catalog;
 mod entries;
 mod error;
-mod input;
 mod render;
 mod result;
 mod state;
@@ -23,12 +22,10 @@ pub fn run(dir: &Path, home: &Path) -> Result<()> {
     // rendering closure for the terminal
     let drive = |terminal: &mut DefaultTerminal, state: &mut State| -> Result<()> {
         while !state.done {
-            state.tick(now_millis());
-            state.viewport(terminal.size()?.width);
-            terminal.draw(|frame| render::draw(frame, state))?;
+            terminal.draw(|frame| render::draw(frame, state, now_millis()))?;
             if let Event::Key(key) = event::read()? {
                 // reads a key event from the terminal
-                if let Some(command) = input::apply(state, &key) {
+                if let Some(command) = state.apply(&key) {
                     // ensure valid command
                     action::execute(state, command, dir, home); // execute the cmd
                 }

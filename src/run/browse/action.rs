@@ -81,7 +81,7 @@ mod tests {
 
     use super::execute;
     use crate::run::browse::catalog;
-    use crate::run::browse::state::{Command, Level, Mode, Pending, State};
+    use crate::run::browse::state::{Command, Level, Mode, State};
     use crate::run::scratch_dir::ScratchDir;
 
     fn write(root: &Path, relative: &str, text: &str) {
@@ -174,7 +174,7 @@ mod tests {
             state.mode,
             Mode::Confirm(
                 format!("delete 1 log file(s) under {}? [y/N]", logs.display()),
-                Pending::Delete
+                Command::Delete
             )
         );
     }
