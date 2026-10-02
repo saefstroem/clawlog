@@ -61,6 +61,9 @@ impl State {
     }
 
     pub fn apply(&mut self, event: &KeyEvent) -> Option<Command> {
+        if event.code == KeyCode::Char('c') && event.modifiers == KeyModifiers::CONTROL {
+            self.done = true;
+        }
         if event.kind == KeyEventKind::Release
             || !event.modifiers.difference(KeyModifiers::SHIFT).is_empty()
         {
@@ -119,7 +122,6 @@ impl State {
     fn navigate(&mut self, code: KeyCode) -> Option<Command> {
         let top = self.level == Level::Conversations;
         match code {
-            KeyCode::Char('q') => self.done = true,
             KeyCode::Up | KeyCode::Char('k') => self.move_by(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_by(1),
             KeyCode::PageUp => self.move_by(-10),
@@ -250,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_lists_stay_put_and_q_quits_anywhere() {
+    fn empty_lists_stay_put() {
         let mut state = state(0);
         keys(&mut state, "jk");
         assert_eq!(press(&mut state, KeyCode::Enter), None);
@@ -258,8 +260,6 @@ mod tests {
         state.open(Vec::new());
         assert_eq!(press(&mut state, KeyCode::Enter), None);
         assert_eq!(state.level, Level::Entries);
-        keys(&mut state, "q");
-        assert!(state.done);
     }
 
     #[test]
@@ -348,21 +348,25 @@ mod tests {
     }
 
     #[test]
-    fn ignores_releases_and_modified_keys_but_types_shifted_ones() {
+    fn ctrl_c_quits_anywhere_while_q_releases_and_other_chords_do_nothing() {
         let mut state = state(3);
-        let release =
-            KeyEvent::new_with_kind(KeyCode::Down, KeyModifiers::NONE, KeyEventKind::Release);
-        assert_eq!(state.apply(&release), None);
-        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT] {
-            assert_eq!(
-                state.apply(&KeyEvent::new(KeyCode::Char('c'), modifiers)),
-                None
-            );
+        for event in [
+            KeyEvent::new_with_kind(KeyCode::Down, KeyModifiers::NONE, KeyEventKind::Release),
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        ] {
+            assert_eq!(state.apply(&event), None);
         }
-        assert_eq!((state.cursor, &state.mode), (0, &Mode::Normal));
+        assert_eq!(
+            (state.cursor, &state.mode, state.done),
+            (0, &Mode::Normal, false)
+        );
         keys(&mut state, "e");
         state.apply(&KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT));
         assert_eq!(state.mode, Mode::Input("A".to_owned()));
+        state.apply(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(state.done);
     }
 
     #[test]

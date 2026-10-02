@@ -13,6 +13,7 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
     let dim = Style::new().fg(Color::DarkGray);
     let bold = Style::new().add_modifier(Modifier::BOLD);
     let yellow = Style::new().fg(Color::Yellow);
+    let logo_stl = Style::new().add_modifier(Modifier::BOLD).red();
     let age = |last_ms: u64| match now_ms.saturating_sub(last_ms) / 1000 {
         seconds if last_ms == 0 || seconds < 60 => "now".to_owned(),
         seconds if seconds < 3600 => format!("{}m", seconds / 60),
@@ -27,14 +28,14 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
         _ => dim,
     };
     let list = |frame: &mut Frame, area: Rect, mut rows: Vec<Line>, cursor: usize| {
-        rows.reverse();
         let list = List::new(rows)
             .highlight_symbol("> ")
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
         let mut selection = ListState::default().with_selected(Some(cursor));
         frame.render_stateful_widget(list, area, &mut selection);
     };
-    let [title, main, legend, status] = Layout::vertical([
+    let [logo, title, main, legend, status] = Layout::vertical([
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
@@ -44,10 +45,13 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
     let (mut heading, keys) = match state.level {
         Level::Conversations => (
             "Conversations",
-            "Up/Down move  Enter open  i install  u uninstall  e export  c clear  q quit",
+            "Up/Down move  Enter open  i install  u uninstall  e export  c clear  Ctrl+C quit",
         ),
-        Level::Entries => ("Entries", "Up/Down move  Enter detail  Esc back  q quit"),
-        Level::Detail => ("Entry", "Up/Down scroll  Esc back  q quit"),
+        Level::Entries => (
+            "Entries",
+            "Up/Down move  Enter detail  Esc back  Ctrl+C quit",
+        ),
+        Level::Detail => ("Entry", "Up/Down scroll  Esc back  Ctrl+C quit"),
     };
     let footer = match &state.mode {
         Mode::Normal => keys.to_owned(),
@@ -121,7 +125,8 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
         Mode::Normal => dim,
         _ => yellow.add_modifier(Modifier::BOLD),
     };
-    frame.render_widget(Paragraph::new(heading).style(bold), title);
+    frame.render_widget(Paragraph::new("Clawlog").style(logo_stl), logo);
+    frame.render_widget(Paragraph::new(heading).style(Style::new()), title);
     frame.render_widget(Paragraph::new(footer).style(footer_style), legend);
     frame.render_widget(Paragraph::new(state.status.as_str()).style(yellow), status);
 }
@@ -190,7 +195,7 @@ mod tests {
         let mut state = state();
         state.status = "added 4 hook(s)".to_owned();
         let (text, colors) = render(&mut state, 90);
-        assert!(text.starts_with("Conversations"), "{text}");
+        assert!(text.contains("\nConversations"), "{text}");
         assert!(
             text.contains(">   5m  claude  s1  2 part(s)  84 B"),
             "{text}"
@@ -199,7 +204,7 @@ mod tests {
             text.contains("    1h  claude  s2  1 part(s)  9 B"),
             "{text}"
         );
-        assert!(text.contains("e export  c clear  q quit"), "{text}");
+        assert!(text.contains("e export  c clear  Ctrl+C quit"), "{text}");
         assert!(text.contains("added 4 hook(s)"), "{text}");
         assert!(colors.is_superset(&HashSet::from([Color::Magenta, Color::Yellow])));
     }
@@ -230,7 +235,7 @@ mod tests {
             "you have no logs at the moment",
             "pick the adapters with Space",
             "start that LLM, interact, and the conversation appears here",
-            "q quit",
+            "Ctrl+C quit",
         ] {
             assert!(text.contains(needle), "{needle}: {text}");
         }
@@ -265,7 +270,7 @@ mod tests {
         let text = render(&mut state, 40).0;
         assert!(text
             .lines()
-            .nth(1)
+            .nth(2)
             .is_some_and(|line| line == format!("{:<40}", "{")));
         assert!(text.contains(&"x".repeat(40)), "{text}");
         for _ in 0..3 {
@@ -275,7 +280,7 @@ mod tests {
         assert_eq!(state.scroll, 4);
         assert!(
             text.lines()
-                .nth(1)
+                .nth(2)
                 .is_some_and(|line| line.starts_with('}')),
             "{text}"
         );
@@ -296,7 +301,7 @@ mod tests {
         press(&mut state, KeyCode::Esc);
         press(&mut state, KeyCode::Char('i'));
         let text = screen(&mut state);
-        assert!(text.starts_with("Install hooks"), "{text}");
+        assert!(text.contains("\nInstall hooks"), "{text}");
         assert!(text.contains("> [x] claude"), "{text}");
         assert!(
             text.contains("Space toggle  Up/Down move  Enter install"),
