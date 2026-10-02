@@ -27,7 +27,7 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
         Some("tool") => Style::new().fg(Color::Magenta),
         _ => dim,
     };
-    let list = |frame: &mut Frame, area: Rect, mut rows: Vec<Line>, cursor: usize| {
+    let list = |frame: &mut Frame, area: Rect, rows: Vec<Line>, cursor: usize| {
         let list = List::new(rows)
             .highlight_symbol("> ")
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
@@ -97,11 +97,12 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
             list(frame, main, rows.collect(), state.cursor);
         }
         (_, Level::Entries) => {
+            let positions = (0..state.entries.len()).rev();
             let rows = state
                 .entries
                 .iter()
-                .enumerate()
-                .map(|(index, entry)| Line::styled(entries::line(index, entry), role(entry)));
+                .zip(positions)
+                .map(|(entry, position)| Line::styled(entries::line(position, entry), role(entry)));
             list(frame, main, rows.collect(), state.entry_cursor);
         }
         (_, Level::Detail) => {
@@ -242,24 +243,23 @@ mod tests {
     }
 
     #[test]
-    fn entries_are_colored_by_role() {
+    fn entries_show_latest_first_keep_their_position_and_color_by_role() {
         let mut state = state();
         state.open(vec![
             json!({"ts": 1, "role": "user", "kind": "prompt", "text": "hi"}),
             json!({"ts": 2, "role": "tool", "kind": "tool_call", "tool": "Bash", "input": "ls"}),
         ]);
-        press(&mut state, KeyCode::Down);
         let (text, colors) = render(&mut state, 90);
-        assert!(
-            text.contains("   0  1  user       prompt       hi"),
-            "{text}"
-        );
-        assert!(
-            text.contains(">    1  2  tool       tool_call    Bash ls"),
-            "{text}"
-        );
+        let rows: Vec<&str> = text.lines().map(str::trim_end).collect();
+        let expected = [
+            ">    1  2  tool       tool_call    Bash ls",
+            "     0  1  user       prompt       hi",
+        ];
+        assert!(rows.windows(2).any(|pair| pair == expected), "{text}");
         assert!(text.contains("Enter detail  Esc back"), "{text}");
         assert!(colors.is_superset(&HashSet::from([Color::Green, Color::Magenta])));
+        press(&mut state, KeyCode::Down);
+        assert!(screen(&mut state).contains(">    0  1  user"));
     }
 
     #[test]

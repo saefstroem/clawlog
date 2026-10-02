@@ -169,7 +169,8 @@ impl State {
         self.conversations.get(self.cursor)
     }
 
-    pub fn open(&mut self, entries: Vec<Value>) {
+    pub fn open(&mut self, mut entries: Vec<Value>) {
+        entries.reverse();
         self.entries = entries;
         self.entry_cursor = 0;
         self.level = Level::Entries;
@@ -242,7 +243,7 @@ mod tests {
         assert_eq!((state.level, state.entry_cursor), (Level::Entries, 0));
         assert_eq!(press(&mut state, KeyCode::Enter), None);
         assert_eq!(state.level, Level::Detail);
-        assert_eq!(state.detail, "{\n  \"n\": 1\n}");
+        assert_eq!(state.detail, "{\n  \"n\": 2\n}");
         press(&mut state, KeyCode::Esc);
         press(&mut state, KeyCode::Esc);
         assert_eq!(state.level, Level::Conversations);
