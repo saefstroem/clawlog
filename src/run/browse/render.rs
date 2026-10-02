@@ -26,7 +26,8 @@ pub fn draw(frame: &mut Frame, state: &mut State, now_ms: u64) {
         Some("tool") => Style::new().fg(Color::Magenta),
         _ => dim,
     };
-    let list = |frame: &mut Frame, area: Rect, rows: Vec<Line>, cursor: usize| {
+    let list = |frame: &mut Frame, area: Rect, mut rows: Vec<Line>, cursor: usize| {
+        rows.reverse();
         let list = List::new(rows)
             .highlight_symbol("> ")
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
