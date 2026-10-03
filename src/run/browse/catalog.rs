@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{ErrorKind, Read, Seek, SeekFrom};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use serde_json::{from_str, Value};
-
 use super::Result;
-use crate::run::part_file;
+use crate::run::{clock, part_file};
 
 pub struct Conversation {
     pub adapter: String,
@@ -18,7 +16,7 @@ pub struct Conversation {
 
 /// scans the given directory for conversations and returns a list of them
 pub fn scan(dir: &Path) -> Result<Vec<Conversation>> {
-    let mut grouped: BTreeMap<_, Vec<(u32, u64, PathBuf)>> = BTreeMap::new();
+    let mut grouped: BTreeMap<_, Vec<(u32, u64, u64, PathBuf)>> = BTreeMap::new();
     // read all the adapters configured
     let adapters = match fs::read_dir(dir) {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -47,45 +45,14 @@ pub fn scan(dir: &Path) -> Result<Vec<Conversation>> {
             let Some((id, number)) = part_file::parse(&name, &file) else {
                 continue;
             };
+            let metadata = part.metadata()?;
+            let modified = metadata.modified().map_or(0, clock::millis);
             grouped
                 .entry((name.clone(), id.to_owned()))
                 .or_default()
-                .push((number, part.metadata()?.len(), part.path()));
+                .push((number, metadata.len(), modified, part.path()));
         }
     }
-
-    // compute the last entry timestamp for a given part file
-    let last_entry_ts = |path: &Path| -> Option<u64> {
-        let mut file = File::open(path).ok()?;
-        let len = file.metadata().ok()?.len();
-        let mut window = 8 * 1024u64; // to prevent reading the entire file at once
-        loop {
-            // compute start position
-            let start = len.saturating_sub(window);
-
-            // seek to the start position and read the tail of the file
-            file.seek(SeekFrom::Start(start)).ok()?;
-            let mut tail = String::new();
-            file.read_to_string(&mut tail).ok()?;
-            let mut lines = tail.lines().rev();
-            // get the first JSON entry from the tail of the file
-            let entry = lines.find(|line| line.starts_with('{'));
-            if let Some(line) = entry {
-                // strip the trailing comma if present
-                let line = line.strip_suffix(',').unwrap_or(line);
-                if start == 0 || !tail.starts_with(line) {
-                    // parse the JSON entry and extract the timestamp
-                    let parsed: Value = from_str(line).ok()?;
-                    return parsed.get("ts").and_then(Value::as_u64);
-                }
-            }
-            // if no entry was found, increase the window and try again
-            if start == 0 || window >= 4 * 1024 * 1024 {
-                return None;
-            }
-            window *= 8;
-        }
-    };
 
     // transform the grouped parts into conversations
     let mut conversations: Vec<Conversation> = grouped
@@ -96,12 +63,13 @@ pub fn scan(dir: &Path) -> Result<Vec<Conversation>> {
             Conversation {
                 adapter,
                 id,
-                bytes: parts.iter().map(|(_, bytes, _)| bytes).sum(),
+                bytes: parts.iter().map(|(_, bytes, _, _)| bytes).sum(),
                 last_ms: parts
-                    .last()
-                    .and_then(|(_, _, path)| last_entry_ts(path))
+                    .iter()
+                    .map(|(_, _, modified, _)| *modified)
+                    .max()
                     .unwrap_or(0),
-                parts: parts.into_iter().map(|(_, _, path)| path).collect(),
+                parts: parts.into_iter().map(|(_, _, _, path)| path).collect(),
             }
         })
         .collect();
@@ -116,46 +84,38 @@ pub fn scan(dir: &Path) -> Result<Vec<Conversation>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::fs::{self, File};
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, UNIX_EPOCH};
 
     use super::scan;
     use crate::run::scratch_dir::ScratchDir;
 
     fn write(root: &Path, relative: &str, bytes: usize) {
-        write_text(root, relative, &"x".repeat(bytes));
+        write_at(root, relative, bytes, 1);
     }
 
-    fn write_text(root: &Path, relative: &str, text: &str) {
+    fn write_at(root: &Path, relative: &str, bytes: usize, seconds: u64) {
         let path = root.join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
+        fs::write(&path, "x".repeat(bytes)).unwrap();
+        let file = File::options().write(true).open(&path).unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_secs(seconds))
+            .unwrap();
     }
 
     #[test]
-    fn last_ms_reads_the_newest_entry_ts_and_sorts_newest_first() {
+    fn last_ms_is_the_newest_part_mtime_and_sorts_newest_first() {
         let root = ScratchDir::new();
-        write_text(
-            root.path(),
-            "claude/clawlog_claude_old_0001.part.json",
-            "[\n{\"ts\":100,\"text\":\"a\"},\n{\"ts\":200,\"text\":\"b\"}\n]\n",
-        );
-        write_text(
-            root.path(),
-            "claude/clawlog_claude_new_0001.part.json",
-            "[\n{\"ts\":50}\n]\n",
-        );
-        write_text(
-            root.path(),
-            "claude/clawlog_claude_new_0002.part.json",
-            "[\n{\"ts\":900}\n]\n",
-        );
-        let big_entry = format!("{{\"ts\":300,\"text\":\"{}\"}}", "y".repeat(20 * 1024));
-        write_text(
-            root.path(),
-            "claude/clawlog_claude_big_0001.part.json",
-            &format!("[\n{{\"ts\":1}},\n{big_entry}\n]\n"),
-        );
+        for (part, seconds) in [
+            ("old_0001", 200),
+            ("new_0001", 50),
+            ("new_0002", 900),
+            ("mid_0001", 300),
+        ] {
+            let relative = format!("claude/clawlog_claude_{part}.part.json");
+            write_at(root.path(), &relative, 1, seconds);
+        }
         let found = scan(root.path()).unwrap();
         let rows: Vec<(String, u64)> = found
             .iter()
@@ -164,25 +124,11 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                ("new".to_owned(), 900),
-                ("big".to_owned(), 300),
-                ("old".to_owned(), 200),
+                ("new".to_owned(), 900_000),
+                ("mid".to_owned(), 300_000),
+                ("old".to_owned(), 200_000),
             ]
         );
-    }
-
-    #[test]
-    fn unreadable_tails_leave_last_ms_zero() {
-        let root = ScratchDir::new();
-        write_text(
-            root.path(),
-            "claude/clawlog_claude_junk_0001.part.json",
-            "not json at all",
-        );
-        write(root.path(), "claude/clawlog_claude_empty_0001.part.json", 0);
-        let found = scan(root.path()).unwrap();
-        assert!(found.iter().all(|conversation| conversation.last_ms == 0));
-        assert_eq!(found.len(), 2);
     }
 
     #[test]

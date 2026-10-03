@@ -2,8 +2,12 @@
 name = "clawlog"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 description = "Log every prompt and response that is sent in-between you and your LLM of choice."
-publish = false
+license = "MIT"
+repository = "https://github.com/saefstroem/clawlog"
+keywords = ["claude", "llm", "logging", "hooks", "tui"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 ratatui = "0.30.2"
